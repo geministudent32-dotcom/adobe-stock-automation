@@ -1,0 +1,132 @@
+{
+  "name": "Adobe Stock - Keyword Optimizer",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "optimize-keywords",
+        "method": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook - Trigger Optimization",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://stock.adobe.io/Rest/Libraries/1/Member/Content?limit=100&sort=downloads",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "name": "Get Low Performing Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.downloads }}",
+              "operation": "smaller",
+              "value2": 10
+            }
+          ]
+        }
+      },
+      "name": "Filter Low Downloads",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "gpt-4"
+            },
+            {
+              "name": "messages",
+              "value": "={{ [{role: 'user', content: `Generate 20 SEO-optimized keywords for this stock photo: ${$json.title}. Current keywords: ${$json.keywords}. Suggest better alternatives.`}] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Generate Better Keywords",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [850, 250]
+    },
+    {
+      "parameters": {
+        "functionCode": "const response = $json.choices[0].message.content;\nconst keywords = response.split(',').map(k => k.trim()).join(',');\n\nreturn {\n  json: {\n    contentId: $('Filter Low Downloads').first().json.id,\n    oldKeywords: $('Filter Low Downloads').first().json.keywords,\n    newKeywords: keywords\n  }\n};"
+      },
+      "name": "Format Keywords",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1050, 250]
+    },
+    {
+      "parameters": {
+        "url": "https://stock.adobe.io/Rest/Libraries/1/Content/={{ $json.contentId }}",
+        "method": "PUT",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "keywords",
+              "value": "={{ $json.newKeywords }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Update Content Keywords",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1250, 250]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: true, updated: $json.contentId, oldKeywords: $json.oldKeywords, newKeywords: $json.newKeywords } }}"
+      },
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1450, 250]
+    }
+  ],
+  "connections": {
+    "Webhook - Trigger Optimization": {
+      "main": [[{ "node": "Get Low Performing Content", "type": "main", "index": 0 }]]
+    },
+    "Get Low Performing Content": {
+      "main": [[{ "node": "Filter Low Downloads", "type": "main", "index": 0 }]]
+    },
+    "Filter Low Downloads": {
+      "main": [[{ "node": "Generate Better Keywords", "type": "main", "index": 0 }]]
+    },
+    "Generate Better Keywords": {
+      "main": [[{ "node": "Format Keywords", "type": "main", "index": 0 }]]
+    },
+    "Format Keywords": {
+      "main": [[{ "node": "Update Content Keywords", "type": "main", "index": 0 }]]
+    },
+    "Update Content Keywords": {
+      "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]]
+    }
+  }
+}
