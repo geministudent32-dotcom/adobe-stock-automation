@@ -1,0 +1,117 @@
+{
+  "name": "Adobe Stock - Batch Upload",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "upload",
+        "method": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook - Receive Files",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const files = items[0].binary;\nconst results = [];\n\nfor (const key in files) {\n  results.push({\n    json: {\n      filename: files[key].fileName,\n      mimeType: files[key].mimeType,\n      fileSize: files[key].fileSize\n    },\n    binary: {\n      data: files[key]\n    }\n  });\n}\n\nreturn results;"
+      },
+      "name": "Process Files",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://vision.googleapis.com/v1/images:annotate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "requests",
+              "value": "={{ [{\"image\": {\"content\": $binary.data.data}, \"features\": [{\"type\": \"LABEL_DETECTION\", \"maxResults\": 10}]}] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Google Vision - Generate Keywords",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const labels = $json.responses[0].labelAnnotations;\nconst keywords = labels.map(l => l.description).join(',');\n\nreturn {\n  json: {\n    filename: $json.filename,\n    keywords: keywords,\n    title: $json.filename.replace(/\\.[^/.]+$/, ''),\n    description: `Professional stock photo featuring ${keywords.split(',').slice(0, 3).join(', ')}`\n  },\n  binary: $binary\n};"
+      },
+      "name": "Format Metadata",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://stock.adobe.io/Rest/Media/1/Files",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "file",
+              "value": "={{ $binary.data }}"
+            },
+            {
+              "name": "title",
+              "value": "={{ $json.title }}"
+            },
+            {
+              "name": "keywords",
+              "value": "={{ $json.keywords }}"
+            },
+            {
+              "name": "description",
+              "value": "={{ $json.description }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Upload to Adobe Stock",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: true, uploaded: $json.id, filename: $json.filename } }}"
+      },
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - Receive Files": {
+      "main": [[{ "node": "Process Files", "type": "main", "index": 0 }]]
+    },
+    "Process Files": {
+      "main": [[{ "node": "Google Vision - Generate Keywords", "type": "main", "index": 0 }]]
+    },
+    "Google Vision - Generate Keywords": {
+      "main": [[{ "node": "Format Metadata", "type": "main", "index": 0 }]]
+    },
+    "Format Metadata": {
+      "main": [[{ "node": "Upload to Adobe Stock", "type": "main", "index": 0 }]]
+    },
+    "Upload to Adobe Stock": {
+      "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]]
+    }
+  }
+}
