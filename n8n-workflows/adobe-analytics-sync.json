@@ -1,0 +1,116 @@
+{
+  "name": "Adobe Stock - Daily Analytics Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "name": "Schedule - Daily 9 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://stock.adobe.io/Rest/Libraries/1/Member/Profile",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "name": "Get Profile Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://stock.adobe.io/Rest/Libraries/1/Member/ContentStats",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "name": "Get Content Stats",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [450, 450]
+    },
+    {
+      "parameters": {
+        "url": "https://stock.adobe.io/Rest/Libraries/1/Member/Content?limit=20&sort=downloads",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "name": "Get Top Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [450, 600]
+    },
+    {
+      "parameters": {
+        "functionCode": "const profile = $('Get Profile Data').first().json;\nconst stats = $('Get Content Stats').first().json;\nconst topContent = $('Get Top Content').all();\n\nreturn {\n  json: {\n    date: new Date().toISOString(),\n    totalEarnings: profile.total_earnings,\n    totalDownloads: stats.total_downloads,\n    approvalRate: stats.approval_rate,\n    topPerformers: topContent.slice(0, 5).map(item => ({\n      id: item.json.id,\n      title: item.json.title,\n      downloads: item.json.downloads\n    }))\n  }\n};"
+      },
+      "name": "Merge Analytics Data",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [650, 400]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "analytics",
+        "columns": "date, total_earnings, total_downloads, approval_rate, top_performers",
+        "values": "={{ $json.date }}, {{ $json.totalEarnings }}, {{ $json.totalDownloads }}, {{ $json.approvalRate }}, {{ JSON.stringify($json.topPerformers) }}"
+      },
+      "name": "Save to Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "fromEmail": "analytics@yourdomain.com",
+        "toEmail": "your-email@example.com",
+        "subject": "Adobe Stock Daily Report - {{ $now.format('YYYY-MM-DD') }}",
+        "text": "=Daily Analytics Report\n\nTotal Earnings: ${{ $json.totalEarnings }}\nTotal Downloads: {{ $json.totalDownloads }}\nApproval Rate: {{ $json.approvalRate }}%\n\nTop 5 Performers:\n{{ $json.topPerformers.map((item, i) => `${i+1}. ${item.title} - ${item.downloads} downloads`).join('\\n') }}"
+      },
+      "name": "Send Email Report",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1050, 400]
+    }
+  ],
+  "connections": {
+    "Schedule - Daily 9 AM": {
+      "main": [
+        [
+          { "node": "Get Profile Data", "type": "main", "index": 0 },
+          { "node": "Get Content Stats", "type": "main", "index": 0 },
+          { "node": "Get Top Content", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Get Profile Data": {
+      "main": [[{ "node": "Merge Analytics Data", "type": "main", "index": 0 }]]
+    },
+    "Get Content Stats": {
+      "main": [[{ "node": "Merge Analytics Data", "type": "main", "index": 0 }]]
+    },
+    "Get Top Content": {
+      "main": [[{ "node": "Merge Analytics Data", "type": "main", "index": 0 }]]
+    },
+    "Merge Analytics Data": {
+      "main": [[{ "node": "Save to Database", "type": "main", "index": 0 }]]
+    },
+    "Save to Database": {
+      "main": [[{ "node": "Send Email Report", "type": "main", "index": 0 }]]
+    }
+  }
+}
