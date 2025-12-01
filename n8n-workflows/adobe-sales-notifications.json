@@ -1,0 +1,111 @@
+{
+  "name": "Adobe Stock - Sales Notifications",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 */6 * * *"
+            }
+          ]
+        }
+      },
+      "name": "Schedule - Every 6 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://stock.adobe.io/Rest/Libraries/1/Member/Sales?since={{ $now.minus(6, 'hours').toISO() }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "name": "Check New Sales",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.sales.length }}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "name": "Has New Sales?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const sales = $json.sales;\nconst totalEarnings = sales.reduce((sum, sale) => sum + sale.amount, 0);\n\nreturn {\n  json: {\n    count: sales.length,\n    totalEarnings: totalEarnings.toFixed(2),\n    sales: sales.map(sale => ({\n      contentId: sale.content_id,\n      title: sale.title,\n      amount: sale.amount,\n      date: sale.date\n    }))\n  }\n};"
+      },
+      "name": "Format Sales Data",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 250]
+    },
+    {
+      "parameters": {
+        "fromEmail": "sales@yourdomain.com",
+        "toEmail": "your-email@example.com",
+        "subject": "🎉 New Adobe Stock Sales - ${{ $json.totalEarnings }}",
+        "text": "=Congratulations! You have {{ $json.count }} new sale(s)!\n\nTotal Earnings: ${{ $json.totalEarnings }}\n\nSales Details:\n{{ $json.sales.map((sale, i) => `${i+1}. ${sale.title} - $${sale.amount}`).join('\\n') }}"
+      },
+      "name": "Send Email Notification",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1050, 250]
+    },
+    {
+      "parameters": {
+        "channel": "#adobe-stock-sales",
+        "text": "=🎉 New Adobe Stock Sales!\n\n*Count:* {{ $json.count }}\n*Total:* ${{ $json.totalEarnings }}\n\n{{ $json.sales.map(sale => `• ${sale.title} - $${sale.amount}`).join('\\n') }}"
+      },
+      "name": "Send Slack Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [1050, 350]
+    },
+    {
+      "parameters": {
+        "text": "🎉 New Adobe Stock Sales!\n\nCount: {{ $json.count }}\nTotal: ${{ $json.totalEarnings }}",
+        "additionalFields": {}
+      },
+      "name": "Send Discord Notification",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "position": [1050, 450]
+    }
+  ],
+  "connections": {
+    "Schedule - Every 6 Hours": {
+      "main": [[{ "node": "Check New Sales", "type": "main", "index": 0 }]]
+    },
+    "Check New Sales": {
+      "main": [[{ "node": "Has New Sales?", "type": "main", "index": 0 }]]
+    },
+    "Has New Sales?": {
+      "main": [[{ "node": "Format Sales Data", "type": "main", "index": 0 }]]
+    },
+    "Format Sales Data": {
+      "main": [
+        [
+          { "node": "Send Email Notification", "type": "main", "index": 0 },
+          { "node": "Send Slack Notification", "type": "main", "index": 0 },
+          { "node": "Send Discord Notification", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  }
+}
